@@ -24,6 +24,61 @@ also supported. Exports have a white background and fit their contents.
 
 ## Python and notebooks
 
+### Interactive marimo notebook
+
+```sh
+source .venv/bin/activate
+python -m pip install -e '.[notebook,test]'
+marimo edit notebooks/classroom.py
+```
+
+Use `marimo run notebooks/classroom.py` to open just the controls and results,
+without the code editor. Run these commands from this project's directory.
+
+The notebook provides:
+
+- An editable list: one `name | SMILES` per line (a name is optional).
+- Sliders for atom font size, bond length, line width, double/triple bond spacing,
+  and image padding, plus a classroom/RDKit layout selector.
+- Live molecule previews and individual SVG/PNG downloads.
+- A Word download for the complete collection, with title, name, numbering and
+  image-scale controls. Clear the title and uncheck names for formulas only.
+
+The `default_molecules` and `default_style` Python variables set initial values.
+The reactive `entries`, `render_options`, `document_options`, and `docx_bytes`
+variables are available for use in additional cells. Invalid input shows an
+error and prevents exporting a partial collection.
+
+The preview shows individual molecule images, not Word pagination. Word uses
+A4 pages and 20 mm margins, keeps each name with its formula, and scales all
+images together if necessary to fit. Captions and the title are editable Word
+text; structural formulas are embedded 300 dpi PNGs, not editable chemical
+objects. Image scale affects Word only, while rendering controls affect both
+preview and export. Large image scales reduce effective print resolution.
+
+### Export Word from Python
+
+```python
+from pathlib import Path
+from chemistry_renderer import (
+    DocumentOptions, RenderOptions, parse_molecule_lines, to_docx,
+)
+
+molecules = parse_molecule_lines("Ethanol | CCO\nMelkzuur | CC(O)C(=O)O")
+data = to_docx(
+    molecules,
+    RenderOptions(bond_length=18, double_bond_spacing=2.5),
+    DocumentOptions(title="Structuurformules", numbered=True),
+)
+Path("structures.docx").write_bytes(data)
+```
+
+For Word export without marimo, install `pip install -e '.[docx]'`.
+`python examples/export_word.py` creates a sample collection. The core renderer
+still works without marimo or python-docx installed.
+
+### Jupyter and other Python notebooks
+
 ```python
 from chemistry_renderer import RenderOptions, render, to_svg
 

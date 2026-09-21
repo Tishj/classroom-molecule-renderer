@@ -11,6 +11,8 @@ dependencies = ["rdkit>=2024.3", "matplotlib>=3.8"]
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
+docx = ["python-docx>=1.1"]
+notebook = ["marimo>=0.19,<1", "python-docx>=1.1"]
 
 [project.scripts]
 chem-render = "chemistry_renderer.__main__:main"

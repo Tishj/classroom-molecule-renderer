@@ -5,7 +5,7 @@ not to the center of its attached hydrogen text (in particular, O in OH).
 """
 
 from dataclasses import dataclass
-from io import StringIO
+from io import BytesIO, StringIO
 from math import hypot, isfinite
 from pathlib import Path
 
@@ -221,6 +221,15 @@ def to_svg(smiles, options=None):
     """Return a self-contained SVG string with portable font outlines."""
     stream = StringIO()
     _figure(smiles, options).savefig(stream, format="svg", facecolor="white")
+    return stream.getvalue()
+
+
+def to_png(smiles, options=None, *, dpi=300):
+    """Return PNG bytes for notebooks, downloads and document insertion."""
+    if not isfinite(dpi) or dpi <= 0:
+        raise ValueError("dpi must be finite and positive")
+    stream = BytesIO()
+    _figure(smiles, options).savefig(stream, format="png", dpi=dpi, facecolor="white")
     return stream.getvalue()
 
 
