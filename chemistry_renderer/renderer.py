@@ -12,6 +12,7 @@ from pathlib import Path
 from matplotlib.figure import Figure
 from matplotlib.font_manager import FontProperties
 from matplotlib.patches import PathPatch
+from matplotlib.path import Path as GlyphPath
 from matplotlib.textpath import TextPath
 from matplotlib.transforms import Affine2D
 from rdkit import Chem, rdBase
@@ -90,19 +91,53 @@ def _glyph(text, size):
     return TextPath((0, 0), text, size=size, prop=FontProperties(family="DejaVu Sans"))
 
 
+def _label_parts(atom, size, reverse=False):
+    """Place scripts geometrically instead of relying on Unicode font metrics."""
+    element = _glyph(atom.GetSymbol(), size)
+    box = element.get_extents()
+    element = Affine2D().translate(-(box.x0 + box.x1) / 2,
+                                   -(box.y0 + box.y1) / 2).transform_path(element)
+    parts = {"element": element}
+    box = element.get_extents()
+    gap = size * .06
+
+    def place(text, font_size, left, center_y):
+        path = _glyph(text, font_size)
+        bounds = path.get_extents()
+        return Affine2D().translate(left - bounds.x0,
+                    center_y - (bounds.y0 + bounds.y1) / 2).transform_path(path)
+
+    count = atom.GetTotalNumHs()
+    if count:
+        parts["hydrogen"] = place("H", size, box.x1 + gap, 0)
+        if count > 1:
+            parts["subscript"] = place(str(count), size * .65,
+                                      parts["hydrogen"].get_extents().x1 + gap, box.y0)
+        if reverse:
+            right = max(p.get_extents().x1 for key, p in parts.items() if key != "element")
+            shift = box.x0 - gap - right
+            for key in ("hydrogen", "subscript"):
+                if key in parts:
+                    parts[key] = Affine2D().translate(shift, 0).transform_path(parts[key])
+    charge = atom.GetFormalCharge()
+    if charge:
+        text = (str(abs(charge)) if abs(charge) > 1 else "") + ("+" if charge > 0 else "−")
+        charge_path = place(text, size * .65, 0, box.y1)
+        if "subscript" in parts and not reverse:
+            sub = parts["subscript"].get_extents()
+            left = (sub.x0 + sub.x1 - charge_path.get_extents().width) / 2
+        else:
+            left = max(p.get_extents().x1 for p in parts.values()) + gap
+        parts["charge"] = Affine2D().translate(left, 0).transform_path(charge_path)
+    if atom.GetIsotope():
+        isotope = place(str(atom.GetIsotope()), size * .65, 0, box.y1)
+        left = min(p.get_extents().x0 for p in parts.values()) - gap - isotope.get_extents().width
+        parts["isotope"] = Affine2D().translate(left, 0).transform_path(isotope)
+    return parts
+
+
 def _label_path(atom, size, reverse=False):
-    label = atom_label(atom, reverse)
-    path = _glyph(label, size)
-    # Measure the prefix using font advances, so O stays exactly on the bond.
-    from matplotlib.textpath import TextToPath
-    prop = FontProperties(family="DejaVu Sans", size=size)
-    symbol = atom.GetSymbol()
-    prefix = label[:label.index(symbol)]
-    advance = TextToPath().get_text_width_height_descent(prefix, prop, False)[0] if prefix else 0
-    symbol_box = _glyph(symbol, size).get_extents()
-    center_x = advance + (symbol_box.x0 + symbol_box.x1) / 2
-    center_y = (symbol_box.y0 + symbol_box.y1) / 2
-    return Affine2D().translate(-center_x, -center_y).transform_path(path)
+    return GlyphPath.make_compound_path(*_label_parts(atom, size, reverse).values())
 
 
 def _backbone(mol):

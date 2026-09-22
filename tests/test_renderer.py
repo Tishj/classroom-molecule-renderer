@@ -45,6 +45,21 @@ def test_oxygen_glyph_is_centered_on_vertical_bond():
     assert abs((oxygen.get_extents().x0 + oxygen.get_extents().x1) / 2) < 1e-8
 
 
+@pytest.mark.parametrize("size", [12, 20, 32])
+def test_subscript_center_on_letter_floor_and_charge_stacked(size):
+    from chemistry_renderer.renderer import _label_parts
+    parts = _label_parts(parse_smiles("[NH4+]").GetAtomWithIdx(0), size)
+    normal, sub, charge = [parts[key].get_extents() for key in ("element", "subscript", "charge")]
+    assert (sub.y0 + sub.y1) / 2 == pytest.approx(normal.y0)
+    assert (sub.x0 + sub.x1) / 2 == pytest.approx((charge.x0 + charge.x1) / 2)
+    assert charge.y0 > sub.y1
+
+
+def test_cxsmiles_pipe_reaches_rdkit():
+    assert parse_smiles("CCO |$;;$|").GetNumAtoms() == 3
+    assert "<svg" in to_svg("CCO |$;;$|")
+
+
 def test_carbonyl_is_vertical_and_has_two_close_lines():
     ax = Figure().subplots()
     draw_molecule(ax, "CC(=O)O")

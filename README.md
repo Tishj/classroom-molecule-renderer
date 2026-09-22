@@ -37,17 +37,25 @@ without the code editor. Run these commands from this project's directory.
 
 The notebook provides:
 
-- An editable list: one `name | SMILES` per line (a name is optional).
+- Individual sections combining a SMILES input, preview, and image downloads.
+  Press Enter to apply an edit (leaving the field also applies it).
+- A `+` button to add a section and a `−` button on each section to remove it.
+  SMILES is passed directly to RDKit, including `|` in CXSMILES extensions.
 - Sliders for atom font size, bond length, line width, double/triple bond spacing,
   and image padding, plus a classroom/RDKit layout selector.
 - Live molecule previews and individual SVG/PNG downloads.
-- A Word download for the complete collection, with title, name, numbering and
-  image-scale controls. Clear the title and uncheck names for formulas only.
+- A Word download for the complete collection, with optional title, numbering
+  and image-scale controls. The default is formulas only.
 
 The `default_molecules` and `default_style` Python variables set initial values.
 The reactive `entries`, `render_options`, `document_options`, and `docx_bytes`
-variables are available for use in additional cells. Invalid input shows an
-error and prevents exporting a partial collection.
+variables are available for use in additional cells. An empty or invalid section
+prevents exporting a partial collection; valid sections retain their previews.
+Formatting and Word settings are in collapsible panels.
+
+Subscript numerals are positioned with their midpoint at the bottom of the main
+letters. Charges are stacked above hydrogen counts, for example the `+` above
+the `4` in `[NH4+]`. The same typography is used in previews and all exports.
 
 The preview shows individual molecule images, not Word pagination. Word uses
 A4 pages and 20 mm margins, keeps each name with its formula, and scales all
@@ -60,15 +68,13 @@ preview and export. Large image scales reduce effective print resolution.
 
 ```python
 from pathlib import Path
-from chemistry_renderer import (
-    DocumentOptions, RenderOptions, parse_molecule_lines, to_docx,
-)
+from chemistry_renderer import DocumentOptions, MoleculeEntry, RenderOptions, to_docx
 
-molecules = parse_molecule_lines("Ethanol | CCO\nMelkzuur | CC(O)C(=O)O")
+molecules = [MoleculeEntry("", "CCO"), MoleculeEntry("", "CC(O)C(=O)O")]
 data = to_docx(
     molecules,
     RenderOptions(bond_length=18, double_bond_spacing=2.5),
-    DocumentOptions(title="Structuurformules", numbered=True),
+    DocumentOptions(title="", include_names=False),
 )
 Path("structures.docx").write_bytes(data)
 ```
