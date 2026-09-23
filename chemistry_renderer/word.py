@@ -1,16 +1,17 @@
 """Notebook-friendly Word export. python-docx is an optional dependency."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from io import BytesIO
 from math import isfinite
 
-from .renderer import MoleculeError, _figure
+from .renderer import MoleculeError, RenderOptions, _figure
 
 
 @dataclass(frozen=True)
 class MoleculeEntry:
     name: str
     smiles: str
+    stereochemistry: str | None = None
 
 
 @dataclass(frozen=True)
@@ -63,7 +64,10 @@ def _prepare_images(entries, options=None):
     images = []
     for index, entry in enumerate(entries, 1):
         try:
-            fig = _figure(entry.smiles, options)
+            entry_options = options or RenderOptions()
+            if entry.stereochemistry is not None:
+                entry_options = replace(entry_options, stereochemistry=entry.stereochemistry)
+            fig = _figure(entry.smiles, entry_options)
         except ValueError as error:
             raise MoleculeError(f"Molecule {index} ({entry.name or entry.smiles}): {error}") from error
         stream = BytesIO()

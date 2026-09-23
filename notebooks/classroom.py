@@ -8,8 +8,9 @@ app = marimo.App(width="medium")
 def _():
     import marimo as mo
     from uuid import uuid4
+    from dataclasses import replace
     from chemistry_renderer import DocumentOptions, MoleculeEntry, RenderOptions, to_docx, to_png, to_svg
-    return DocumentOptions, MoleculeEntry, RenderOptions, mo, to_docx, to_png, to_svg, uuid4
+    return DocumentOptions, MoleculeEntry, RenderOptions, mo, replace, to_docx, to_png, to_svg, uuid4
 
 
 @app.cell
@@ -52,17 +53,25 @@ def _(RenderOptions, bond_length, bond_spacing, font_size, layout, line_width, p
 
 
 @app.cell
-def _(get_molecules, mo, set_molecules, uuid4):
+def _(get_molecules, layout, mo, set_molecules, uuid4):
     # Stable IDs keep edits and removals attached to the correct molecule.
-    def update_smiles(key, value):
-        set_molecules(lambda rows: [dict(row, smiles=value) if row["id"] == key else row for row in rows])
+    def update_molecule(key, field, value):
+        set_molecules(lambda rows: [dict(row, **{field: value}) if row["id"] == key else row for row in rows])
 
     def remove_molecule(key):
         set_molecules(lambda rows: [row for row in rows if row["id"] != key])
 
     molecule_inputs = mo.ui.dictionary({
         row["id"]: mo.ui.text(value=row["smiles"], label="SMILES", full_width=True, debounce=True,
-                              on_change=lambda value, key=row["id"]: update_smiles(key, value))
+                              on_change=lambda value, key=row["id"]: update_molecule(key, "smiles", value))
+        for row in get_molecules()
+    })
+    stereo_inputs = mo.ui.dictionary({
+        row["id"]: mo.ui.dropdown(
+            options={"Show stereochemistry": "show", "Omit stereochemistry": "omit"},
+            value="Omit stereochemistry" if row.get("stereo") == "omit" else "Show stereochemistry",
+            label="Stereo", disabled=layout.value != "rdkit",
+            on_change=lambda value, key=row["id"]: update_molecule(key, "stereo", value))
         for row in get_molecules()
     })
     remove_buttons = mo.ui.dictionary({
@@ -72,21 +81,25 @@ def _(get_molecules, mo, set_molecules, uuid4):
     })
     add_button = mo.ui.button(label="+", tooltip="Add molecule", disabled=len(get_molecules()) >= 100,
                              on_click=lambda _: set_molecules(lambda rows: rows + [{"id": uuid4().hex, "smiles": ""}]))
-    return add_button, molecule_inputs, remove_buttons
+    return add_button, molecule_inputs, remove_buttons, stereo_inputs
 
 
 @app.cell(hide_code=True)
-def _(MoleculeEntry, add_button, mo, molecule_inputs, remove_buttons, render_options, to_png, to_svg):
+def _(MoleculeEntry, add_button, mo, molecule_inputs, remove_buttons, render_options, replace, stereo_inputs, to_png, to_svg):
     entries = []
     _sections = []
     collection_valid = bool(molecule_inputs.value)
     for _index, (_key, _smiles) in enumerate(molecule_inputs.value.items(), 1):
-        _entry = MoleculeEntry("", _smiles.strip())
+        _stereo = stereo_inputs.value[_key] if render_options.layout == "rdkit" else "omit"
+        _entry = MoleculeEntry("", _smiles.strip(), stereochemistry=_stereo)
+        _options = replace(render_options, stereochemistry=_entry.stereochemistry)
         entries.append(_entry)
         _content = [mo.hstack([molecule_inputs[_key], remove_buttons[_key]], align="end", widths=[1, .06])]
+        if render_options.layout == "rdkit":
+            _content.append(stereo_inputs[_key])
         try:
-            _svg = to_svg(_entry.smiles, render_options)
-            _png = to_png(_entry.smiles, render_options)
+            _svg = to_svg(_entry.smiles, _options)
+            _png = to_png(_entry.smiles, _options)
             _content.extend([
                 mo.Html(_svg[_svg.index("<svg"):]).style({"overflow-x": "auto"}),
                 mo.hstack([

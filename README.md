@@ -43,6 +43,9 @@ The notebook provides:
   SMILES is passed directly to RDKit, including `|` in CXSMILES extensions.
 - Sliders for atom font size, bond length, line width, double/triple bond spacing,
   and image padding, plus a classroom/RDKit layout selector.
+- In RDKit layout, each molecule has its own Show/Omit stereochemistry control.
+  Classroom layout hides that control and omits stereo information. Each choice
+  is remembered when switching back to RDKit and is used in image/Word exports.
 - Live molecule previews and individual SVG/PNG downloads.
 - A Word download for the complete collection, with optional title, numbering
   and image-scale controls. The default is formulas only.
@@ -125,9 +128,15 @@ That mode uses the same condensed labels and custom bond drawing with RDKit's
 Kekulé form. Dense structures may need a larger `--bond-length`; general label
 and bond collision avoidance is not implemented for RDKit layouts.
 
-Invalid SMILES, radicals, wildcard atoms, disconnected fragments, stereochemical
-specifications, and molecules over 100 atoms produce errors. Stereo input is
-rejected because this renderer does not yet implement wedges or E/Z depiction.
+Invalid SMILES, radicals, wildcard atoms, disconnected fragments, and molecules
+over 100 atoms produce errors. The Python API defaults to rejecting stereo input;
+use `RenderOptions(stereochemistry="omit")` to intentionally omit it, or
+`RenderOptions(layout="rdkit", stereochemistry="show")` to preserve tetrahedral
+stereochemistry with wedge/hashed bonds and E/Z geometry. Showing stereochemistry
+requires RDKit layout. Hydrogens attached to specified tetrahedral centers are
+drawn separately. Non-tetrahedral stereo and enhanced stereo groups cannot yet
+be displayed. `MoleculeEntry(..., stereochemistry="show")` or `"omit"` overrides
+the stereo setting for one molecule in a Word collection.
 It does not render all hydrogens as separate atoms, condensed repeat units, or
 polymer brackets. Ordinary explicit H atoms may be collapsed by RDKit on input.
 

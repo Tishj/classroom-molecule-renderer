@@ -11,7 +11,7 @@ from pathlib import Path
 
 from matplotlib.figure import Figure
 from matplotlib.font_manager import FontProperties
-from matplotlib.patches import PathPatch
+from matplotlib.patches import PathPatch, Polygon
 from matplotlib.path import Path as GlyphPath
 from matplotlib.textpath import TextPath
 from matplotlib.transforms import Affine2D
@@ -31,6 +31,7 @@ class RenderOptions:
     line_width: float = 1.4
     padding: float = 14
     layout: str = "classroom"
+    stereochemistry: str = "reject"
 
     def __post_init__(self):
         for name in ("font_size", "bond_length", "double_bond_spacing", "line_width", "padding"):
@@ -39,11 +40,15 @@ class RenderOptions:
                 raise ValueError(f"{name} must be finite and positive")
         if self.layout not in ("classroom", "rdkit"):
             raise ValueError("layout must be 'classroom' or 'rdkit'")
+        if self.stereochemistry not in ("reject", "omit", "show"):
+            raise ValueError("stereochemistry must be 'reject', 'omit' or 'show'")
         if self.double_bond_spacing * 2 >= self.font_size:
             raise ValueError("double_bond_spacing must be less than half font_size")
 
 
-def parse_smiles(smiles):
+def parse_smiles(smiles, stereochemistry="reject"):
+    if stereochemistry not in ("reject", "omit", "show"):
+        raise ValueError("Unknown stereochemistry mode")
     if not isinstance(smiles, str) or not smiles.strip():
         raise MoleculeError("Enter a non-empty SMILES string.")
     params = Chem.SmilesParserParams()
@@ -56,20 +61,39 @@ def parse_smiles(smiles):
         raise MoleculeError("At most 100 atoms are supported per drawing.")
     if len(Chem.GetMolFrags(mol)) != 1:
         raise MoleculeError("Draw one connected molecule or ion at a time.")
+    if stereochemistry == "omit":
+        Chem.RemoveStereochemistry(mol)
+    if stereochemistry == "show" and mol.GetStereoGroups():
+        raise MoleculeError("Enhanced stereo groups are not supported; choose Omit stereochemistry.")
     for atom in mol.GetAtoms():
         if atom.GetAtomicNum() == 0 or atom.GetNumRadicalElectrons():
             raise MoleculeError("Wildcard atoms and radicals are not supported.")
-        if atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED:
+        if stereochemistry == "reject" and atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED:
             raise MoleculeError("Stereochemistry needs wedge bonds; omit stereo only if intentional.")
+        if atom.GetChiralTag() not in (Chem.ChiralType.CHI_UNSPECIFIED,
+                Chem.ChiralType.CHI_TETRAHEDRAL_CW, Chem.ChiralType.CHI_TETRAHEDRAL_CCW):
+            raise MoleculeError("Only tetrahedral atom stereochemistry can be displayed.")
     for bond in mol.GetBonds():
-        if bond.GetStereo() != Chem.BondStereo.STEREONONE:
+        if stereochemistry == "reject" and bond.GetStereo() != Chem.BondStereo.STEREONONE:
             raise MoleculeError("E/Z stereochemistry is not supported by this notation.")
+        if bond.GetStereo() not in (Chem.BondStereo.STEREONONE, Chem.BondStereo.STEREOE,
+                Chem.BondStereo.STEREOZ, Chem.BondStereo.STEREOCIS, Chem.BondStereo.STEREOTRANS):
+            raise MoleculeError("This bond stereochemistry cannot be displayed.")
         if bond.GetBondType() not in (Chem.BondType.SINGLE, Chem.BondType.DOUBLE,
                                       Chem.BondType.TRIPLE, Chem.BondType.AROMATIC):
             raise MoleculeError("Only single, double, triple and aromatic bonds are supported.")
     # Aromatic molecules are displayed with one valid alternating-bond form.
     Chem.Kekulize(mol, clearAromaticFlags=True)
+    if stereochemistry == "show":
+        centers = [a.GetIdx() for a in mol.GetAtoms() if a.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED]
+        if centers:
+            mol = Chem.AddHs(mol, onlyOnAtoms=centers)
     return mol
+
+
+def _has_stereo(mol):
+    return (any(a.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED for a in mol.GetAtoms())
+            or any(b.GetStereo() != Chem.BondStereo.STEREONONE for b in mol.GetBonds()))
 
 
 SUB = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
@@ -162,9 +186,13 @@ def _backbone(mol):
 
 def layout_molecule(mol, options):
     """Return atom positions and glyph paths; never silently drop branches."""
+    if options.stereochemistry == "show" and _has_stereo(mol) and options.layout != "rdkit":
+        raise MoleculeError("Showing stereochemistry requires layout='rdkit'.")
     if options.layout == "rdkit":
         rdDepictor.Compute2DCoords(mol)
         conf = mol.GetConformer()
+        if options.stereochemistry == "show":
+            Chem.WedgeMolBonds(mol, conf)
         scale = (options.font_size * 3 + options.bond_length) / 1.5
         positions = {a.GetIdx(): (conf.GetAtomPosition(a.GetIdx()).x * scale,
                                   conf.GetAtomPosition(a.GetIdx()).y * scale) for a in mol.GetAtoms()}
@@ -211,7 +239,7 @@ def _exit_distance(box, dx, dy, margin=3):
 def draw_molecule(ax, smiles, options=None):
     """Draw into a Matplotlib Axes, suitable for quiz grids and notebooks."""
     options = options or RenderOptions()
-    mol = parse_smiles(smiles)
+    mol = parse_smiles(smiles, options.stereochemistry)
     positions, paths = layout_molecule(mol, options)
     bounds = {i: p.get_extents() for i, p in paths.items()}
     for bond in mol.GetBonds():
@@ -225,6 +253,25 @@ def draw_molecule(ax, smiles, options=None):
         if start + end >= length:
             raise MoleculeError("Labels overlap; increase bond_length or use a simpler molecule.")
         order = int(bond.GetBondTypeAsDouble())
+        direction = bond.GetBondDir()
+        if options.stereochemistry == "show" and direction in (Chem.BondDir.BEGINWEDGE, Chem.BondDir.BEGINDASH):
+            # RDKit orients the bond from the stereocenter (narrow end).
+            sx, sy = x + dx * start, y + dy * start
+            ex, ey = xx - dx * end, yy - dy * end
+            half_width = options.font_size * .2
+            if direction == Chem.BondDir.BEGINWEDGE:
+                ax.add_patch(Polygon([(sx, sy), (ex - dy * half_width, ey + dx * half_width),
+                                     (ex + dy * half_width, ey - dx * half_width)],
+                                    closed=True, facecolor="#111111", linewidth=0))
+            else:
+                for step in range(1, 9):
+                    t = step / 8
+                    cx, cy = sx + (ex - sx) * t, sy + (ey - sy) * t
+                    width = half_width * t
+                    ax.plot([cx - dy * width, cx + dy * width],
+                            [cy + dx * width, cy - dx * width], color="#111111",
+                            lw=options.line_width, solid_capstyle="butt")
+            continue
         for k in range(order):
             offset = (k - (order - 1) / 2) * options.double_bond_spacing
             ax.plot([x + dx * start - dy * offset, xx - dx * end - dy * offset],
